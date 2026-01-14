@@ -3,34 +3,17 @@ import re
 from pathlib import Path
 from datetime import datetime
 
+import sys
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 
 import mss
 from PIL import Image
 import ctypes
 
 
-RESULT_DIR = Path(__file__).resolve().parent / "result"
+# RESULT_DIR global removed
 
-
-def ensure_result_dir():
-    RESULT_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def next_img_index() -> int:
-    """
-    result 폴더 내 IMG_###.png 파일을 스캔해서 다음 번호를 반환
-    """
-    ensure_result_dir()
-    pattern = re.compile(r"^IMG_(\d{3})\.png$", re.IGNORECASE)
-    max_idx = 0
-    for p in RESULT_DIR.iterdir():
-        if p.is_file():
-            m = pattern.match(p.name)
-            if m:
-                max_idx = max(max_idx, int(m.group(1)))
-    return max_idx + 1
 
 
 def normalize_rect(x1, y1, x2, y2):
@@ -41,6 +24,10 @@ def normalize_rect(x1, y1, x2, y2):
     width = max(1, right - left)
     height = max(1, bottom - top)
     return {"left": int(left), "top": int(top), "width": int(width), "height": int(height)}
+
+
+
+
 
 
 class RegionSelectorOverlay:
@@ -127,20 +114,37 @@ class RegionSelectorOverlay:
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("화면 영역 캡쳐 도구")
+        self.root.withdraw()  # 폴더 선택 전까지 숨김
+
+        # 폴더 선택
+        base_dir = filedialog.askdirectory(title="결과를 저장할 폴더를 선택하세요")
+        if not base_dir:
+            messagebox.showinfo("알림", "폴더가 선택되지 않아 프로그램을 종료합니다.")
+            self.root.destroy()
+            sys.exit(0)
+
+        self.save_dir = Path(base_dir) / "screen-region-capture"
+        try:
+            self.save_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            messagebox.showerror("오류", f"폴더 생성 실패: {e}")
+            self.root.destroy()
+            sys.exit(1)
+
+        self.root.deiconify()  # 메인 창 표시
+        self.root.title(f"화면 영역 캡쳐 도구 - 저장위치: {self.save_dir.name}")
         self.root.geometry("520x220")
         self.root.resizable(False, False)
-
-        ensure_result_dir()
-        self.img_index = next_img_index()
 
         # 실행 중 유지되는 영역(메모리)
         self.region = None
 
+
         # UI
         self.status_var = tk.StringVar(value="상태: 영역이 지정되지 않았습니다.")
         self.region_var = tk.StringVar(value="영역: (미지정)")
-        self.nextfile_var = tk.StringVar(value=f"다음 저장 파일: IMG_{self.img_index:03d}.png")
+        self.nextfile_var = tk.StringVar(value="파일 이름: [날짜]_[시간]_[마이크로초].png")
+
 
         title = tk.Label(root, text="화면 영역 캡쳐 도구", font=("맑은 고딕", 16, "bold"))
         title.pack(pady=(14, 8))
@@ -165,12 +169,19 @@ class App:
         self.btn_reset.pack(side=tk.LEFT, padx=(10, 0))
         self.btn_exit.pack(side=tk.RIGHT)
 
+        # 단축키 설정 (숫자 1을 누르면 캡쳐)
+        self.root.bind("1", self.capture)
+
+
         hint = tk.Label(
             root,
-            text="사용 방법: [영역 지정] → 드래그로 박스 지정 → [캡쳐] 버튼으로 저장",
+            text="사용 방법: [영역 지정] → 드래그 → [캡쳐] 혹은 숫자 '1' 키",
             font=("맑은 고딕", 10)
         )
         hint.pack(pady=(16, 0))
+
+
+
 
     def select_region(self):
         self.status_var.set("상태: 영역 지정 중... (오버레이에서 드래그)")
@@ -195,13 +206,17 @@ class App:
         self.status_var.set("상태: 영역이 초기화되었습니다.")
         self.region_var.set("영역: (미지정)")
 
-    def capture(self):
+    def capture(self, event=None):
+
         if not self.region:
             messagebox.showwarning("경고", "먼저 [영역 지정]을 통해 캡쳐 영역을 지정하세요.")
             return
 
-        filename = f"IMG_{self.img_index:03d}.png"
-        out_path = RESULT_DIR / filename
+        # 날짜_시간_마이크로초 형식으로 파일명 생성 (중복 방지)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filename = f"{timestamp}.png"
+
+        out_path = self.save_dir / filename
 
         self.status_var.set(f"상태: 캡쳐 중... -> {filename}")
         self.root.update_idletasks()
@@ -213,8 +228,8 @@ class App:
                 img.save(out_path, format="PNG")
 
             self.status_var.set(f"상태: 저장 완료 -> {filename}")
-            self.img_index += 1
-            self.nextfile_var.set(f"다음 저장 파일: IMG_{self.img_index:03d}.png")
+            # self.img_index 관련 로직 삭제
+
 
         except Exception as e:
             messagebox.showerror("오류", f"캡쳐 저장에 실패했습니다.\n\n{type(e).__name__}: {e}")

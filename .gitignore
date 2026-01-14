@@ -24,3 +24,10 @@ __pycache__/
 Thumbs.db
 .idea/
 .vscode/
+
+# ===============================
+# Packaging
+# ===============================
+*.spec
+build/
+dist/
